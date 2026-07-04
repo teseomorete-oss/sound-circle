@@ -1,0 +1,15 @@
+# Dependencies
+node_modules/
+
+# Per-device data — never sync these (each device keeps its own library)
+backend/data/
+backend/downloads/
+
+# Bundles / build artifacts we don't want in git
+*.zip
+.DS_Store
+*.log
+
+# Frontend source deps only — the built web/dist IS committed so phones can run
+# without a build step.
+web/node_modules/
