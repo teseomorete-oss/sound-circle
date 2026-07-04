@@ -1,61 +1,60 @@
-# Install MyMusic on your Android phone (Termux)
+# Install Sound Circle on your Android phone (Termux)
 
 This runs the whole app **on your phone** — no laptop needed, works on any
-network, and installs as a real full-screen app.
+network, installs as a real full-screen app, and updates with one command.
 
 ## 1. Install Termux
-Get **Termux** from **F-Droid** (recommended) or GitHub — *not* the outdated
-Play Store version. https://f-droid.org/en/packages/com.termux/
+Get **Termux** from **F-Droid** (recommended) — *not* the outdated Play Store
+version. https://f-droid.org/en/packages/com.termux/
 
-## 2. Copy the app onto your phone
-Transfer `music-app-termux.zip` to your phone (USB, Google Drive, email…),
-then in Termux:
+## 2. Install the tools (one time)
 
 ```bash
-pkg install -y unzip           # if needed
-termux-setup-storage           # allow storage access, then:
+pkg update -y && pkg install -y git nodejs yt-dlp ffmpeg
+```
+
+## 3. Get the app (one time)
+
+```bash
 cd ~
-unzip /sdcard/Download/music-app-termux.zip -d mymusic
+git clone https://github.com/teseomorete-oss/sound-circle mymusic
 cd mymusic
-```
-
-(Adjust the path if your file landed somewhere other than Download.)
-
-## 3. Set it up (one time)
-
-```bash
-bash termux-install.sh
-```
-
-This installs Node.js, Python, ffmpeg and yt-dlp, and the app's dependencies.
-Takes a few minutes.
-
-## 4. Start it
-
-```bash
 bash start.sh
 ```
 
-Leave this Termux screen open while you listen.
+The first `start.sh` installs the app's Node dependencies, then prints:
+**"MyMusic running → open Chrome at http://localhost:3000"**. Leave Termux open.
 
-## 5. Open & install the app
-Open **Chrome** on the phone and go to:
+## 4. Open & install the app
+Open **Chrome** and go to:
 
 ```
 http://localhost:3000
 ```
 
 Because it's `localhost`, Chrome treats it as secure and lets you install it:
-**⋮ menu → Install app** → you get a **MyMusic icon** on your home screen that
-opens full-screen like a native app, with lock-screen controls.
+**⋮ menu → Install app** → you get a **Sound Circle icon** that opens
+full-screen like a native app, with lock-screen controls.
 
 ## Everyday use
-- Open Termux → `cd ~/mymusic && bash start.sh` → open the MyMusic app icon.
-- To keep it alive in the background, install **Termux:Boot** or run
-  `termux-wake-lock` before `start.sh` so Android doesn't kill it.
+Open Termux → `cd ~/mymusic && bash start.sh` → open the Sound Circle icon.
+To keep it alive in the background, run `termux-wake-lock` before `start.sh`
+so Android doesn't kill it.
+
+## Updating — the easy part
+Whenever there's a new version, just:
+
+```bash
+cd ~/mymusic && bash update.sh
+```
+
+`update.sh` pulls the latest code from GitHub, installs any new deps, and
+starts the app. **Your library, playlists, likes, downloads and stats are
+untouched** — they live in `backend/data` and `backend/downloads`, which are
+never part of the repo. No more broken download links.
 
 ## Notes
-- First launch of a song still takes ~2s (yt-dlp contacts YouTube once); after
-  that it's cached.
-- Everything is local to your phone: your library, playlists, likes, downloads.
+- First launch of a song takes ~2s (yt-dlp contacts YouTube once); then cached.
+- Everything is local to your phone: library, playlists, likes, downloads,
+  stats — and each device you install on keeps its own separate library/feed.
 - No ads, no account, no subscription.
