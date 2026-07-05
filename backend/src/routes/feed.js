@@ -1,13 +1,12 @@
 import { Router } from 'express';
-import db from '../db.js';
-import { getRecentlyPlayed, getLibrarySuggestions, getFeedItems, refreshNewReleases } from '../feed.js';
+import { getRecentlyPlayed, getLibrarySuggestions, refreshNewReleases } from '../feed.js';
 import { artistTop, chartTracks, chartArtists, newReleases, relatedArtists, searchArtists, artistRadio } from '../deezer.js';
 import { songKey } from './prefs.js';
 
 const router = Router();
 
 // Remove songs/artists the user marked "not interested" / "don't recommend".
-function applyPrefs(sections) {
+function applyPrefs(db, sections) {
   const hidden = new Set(db.prepare('SELECT key FROM hidden_songs').all().map((r) => r.key));
   const blocked = new Set(db.prepare('SELECT name FROM blocked_artists').all().map((r) => r.name));
   return sections
@@ -36,7 +35,7 @@ function shuffle(arr) {
   return arr;
 }
 
-async function fromFollowedArtists() {
+async function fromFollowedArtists(db) {
   const artists = db
     .prepare('SELECT name, deezer_id FROM followed_artists WHERE deezer_id IS NOT NULL LIMIT 8')
     .all();
@@ -48,7 +47,7 @@ async function fromFollowedArtists() {
 }
 
 // "More like <artist>" — related artists based on someone you follow or like.
-async function moreLike() {
+async function moreLike(db) {
   const seed = db
     .prepare('SELECT name, deezer_id FROM followed_artists WHERE deezer_id IS NOT NULL ORDER BY RANDOM() LIMIT 1')
     .get();
@@ -60,7 +59,7 @@ async function moreLike() {
 }
 
 // "Because you played <artist>" — radio-style mix seeded from your most-played artist.
-async function becauseYouPlayed() {
+async function becauseYouPlayed(db) {
   const top = db.prepare(`
     SELECT t.artist AS name, COUNT(*) AS plays
     FROM history h JOIN tracks t ON t.id = h.track_id
@@ -77,16 +76,17 @@ async function becauseYouPlayed() {
 }
 
 router.get('/', async (req, res) => {
+  const db = req.db;
   const likedSongs = db.prepare('SELECT * FROM liked_songs ORDER BY created_at DESC LIMIT 12').all();
   const likedAlbums = db.prepare('SELECT * FROM liked_albums ORDER BY created_at DESC LIMIT 12').all();
 
   const [followedSongs, trending, releases, topArtists, related, becausePlayed] = await Promise.all([
-    fromFollowedArtists().catch(() => []),
+    fromFollowedArtists(db).catch(() => []),
     chartTracks(15).catch(() => []),
     newReleases(15).catch(() => []),
     chartArtists(12).catch(() => []),
-    moreLike().catch(() => null),
-    becauseYouPlayed().catch(() => null),
+    moreLike(db).catch(() => null),
+    becauseYouPlayed(db).catch(() => null),
   ]);
 
   // "Quick picks" (YT Music's Kurzwahl) — a personalized mix rendered as a
@@ -118,7 +118,7 @@ router.get('/', async (req, res) => {
 
   const sections = [
     { type: 'quick_picks', kind: 'quickpicks', title: 'Quick picks', items: shuffle(quickPicks) },
-    { type: 'recently_played', kind: 'tracks', title: 'Recently played', items: getRecentlyPlayed(12) },
+    { type: 'recently_played', kind: 'tracks', title: 'Recently played', items: getRecentlyPlayed(db, 12) },
     { type: 'your_playlists', kind: 'playlists', title: 'Your playlists', items: myPlaylists },
     { type: 'liked', kind: 'songs', title: 'Songs you like', items: likedSongs },
     { type: 'trending', kind: 'songs', title: 'Trending now', items: trending },
@@ -128,15 +128,15 @@ router.get('/', async (req, res) => {
     related ? { type: 'more_like', kind: 'artists', title: related.title, items: related.items } : null,
     { type: 'top_artists', kind: 'artists', title: 'Top artists', items: topArtists },
     { type: 'liked_albums', kind: 'albums', title: 'Albums you like', items: likedAlbums },
-    { type: 'suggestions', kind: 'tracks', title: 'Based on your library', items: getLibrarySuggestions(10) },
+    { type: 'suggestions', kind: 'tracks', title: 'Based on your library', items: getLibrarySuggestions(db, 10) },
   ].filter((s) => s && s.items.length > 0);
 
-  res.json(applyPrefs(sections));
+  res.json(applyPrefs(db, sections));
 });
 
 router.post('/refresh', async (req, res) => {
   try {
-    await refreshNewReleases();
+    await refreshNewReleases(req.db);
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: e.message });

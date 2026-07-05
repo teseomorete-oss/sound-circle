@@ -1,16 +1,43 @@
 // In dev, Vite proxies /api to the backend (see vite.config.ts).
 export const BASE_URL = '/api';
 
+// --- Auth token (per-device login) ---
+let authToken = localStorage.getItem('sc-token') || '';
+export function getAuthToken() { return authToken; }
+export function setAuthToken(t: string) {
+  authToken = t || '';
+  if (t) localStorage.setItem('sc-token', t); else localStorage.removeItem('sc-token');
+}
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE_URL}${path}`, {
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+    },
     ...options,
   });
+  if (res.status === 401 && !path.startsWith('/auth/')) {
+    setAuthToken('');
+    window.dispatchEvent(new Event('sc-unauthorized'));
+    throw new Error('Not logged in');
+  }
   if (!res.ok) throw new Error(`API error ${res.status}: ${await res.text()}`);
   return res.json();
 }
 
+export interface AuthUser { id: string; username: string; }
+
 export const api = {
+  // Auth
+  authConfig: () => request<{ needsCode: boolean; hasUsers: boolean }>('/auth/config'),
+  login: (username: string, password: string) =>
+    request<{ token: string; user: AuthUser }>('/auth/login', { method: 'POST', body: JSON.stringify({ username, password }) }),
+  signup: (username: string, password: string, code?: string) =>
+    request<{ token: string; user: AuthUser }>('/auth/signup', { method: 'POST', body: JSON.stringify({ username, password, code }) }),
+  me: () => request<{ user: AuthUser }>('/auth/me'),
+  logout: () => request('/auth/logout', { method: 'POST' }).catch(() => {}),
+
   // Feed
   getFeed: () => request<FeedSection[]>('/feed'),
   refreshFeed: () => request('/feed/refresh', { method: 'POST' }),
@@ -45,7 +72,7 @@ export const api = {
     return request<Song[]>(`/tracks/radio?${p}`);
   },
   deleteTrack: (id: string) => request(`/tracks/${id}`, { method: 'DELETE' }),
-  streamUrl: (id: string) => `${BASE_URL}/tracks/${id}/stream`,
+  streamUrl: (id: string) => `${BASE_URL}/tracks/${id}/stream${authToken ? `?t=${authToken}` : ''}`,
 
   // Lyrics
   getLyrics: (artist: string | null, title: string, album?: string | null, duration?: number | null) => {

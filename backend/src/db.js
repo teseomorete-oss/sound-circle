@@ -1,5 +1,6 @@
-// Uses Node's built-in SQLite (node:sqlite) — no native compilation, so it runs
-// anywhere Node runs, including on-device (Termux on Android).
+// Per-user SQLite databases. Each account gets its own file under data/users/,
+// so libraries, history and feeds are completely separate. Uses Node's built-in
+// SQLite (node:sqlite) — no native compilation, runs anywhere Node runs.
 import { DatabaseSync } from 'node:sqlite';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
@@ -7,12 +8,10 @@ import { mkdirSync } from 'fs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = join(__dirname, '..', 'data');
-mkdirSync(DATA_DIR, { recursive: true });
+const USERS_DIR = join(DATA_DIR, 'users');
+mkdirSync(USERS_DIR, { recursive: true });
 
-const db = new DatabaseSync(join(DATA_DIR, 'music.db'));
-db.exec('PRAGMA journal_mode = WAL;');
-
-db.exec(`
+const SCHEMA = `
   CREATE TABLE IF NOT EXISTS hidden_songs ( key TEXT PRIMARY KEY );
   CREATE TABLE IF NOT EXISTS blocked_artists ( name TEXT PRIMARY KEY );
 
@@ -83,23 +82,27 @@ db.exec(`
     cover TEXT,
     created_at INTEGER DEFAULT (unixepoch())
   );
-`);
+`;
 
-// --- Lightweight migrations: add columns to followed_artists if missing ---
-const cols = db.prepare(`PRAGMA table_info(followed_artists)`).all().map((c) => c.name);
-if (!cols.includes('deezer_id')) db.exec(`ALTER TABLE followed_artists ADD COLUMN deezer_id INTEGER`);
-if (!cols.includes('picture')) db.exec(`ALTER TABLE followed_artists ADD COLUMN picture TEXT`);
+function initSchema(db) {
+  db.exec('PRAGMA journal_mode = WAL;');
+  db.exec(SCHEMA);
+  // Lightweight migrations
+  const cols = db.prepare(`PRAGMA table_info(followed_artists)`).all().map((c) => c.name);
+  if (!cols.includes('deezer_id')) db.exec(`ALTER TABLE followed_artists ADD COLUMN deezer_id INTEGER`);
+  if (!cols.includes('picture')) db.exec(`ALTER TABLE followed_artists ADD COLUMN picture TEXT`);
+  const plCols = db.prepare(`PRAGMA table_info(playlists)`).all().map((c) => c.name);
+  if (!plCols.includes('cover')) db.exec(`ALTER TABLE playlists ADD COLUMN cover TEXT`);
+}
 
-const plCols = db.prepare(`PRAGMA table_info(playlists)`).all().map((c) => c.name);
-if (!plCols.includes('cover')) db.exec(`ALTER TABLE playlists ADD COLUMN cover TEXT`);
+const cache = new Map();
 
-// --- Clean up any raw YouTube titles already stored ---
-import('./clean.js').then(({ cleanTitle }) => {
-  const upd = db.prepare('UPDATE tracks SET title = ? WHERE id = ?');
-  for (const t of db.prepare('SELECT id, title, artist FROM tracks').all()) {
-    const c = cleanTitle(t.title, t.artist);
-    if (c && c !== t.title) upd.run(c, t.id);
-  }
-}).catch(() => {});
-
-export default db;
+// Open (and cache) the database for a given user id.
+export function getUserDb(userId) {
+  let db = cache.get(userId);
+  if (db) return db;
+  db = new DatabaseSync(join(USERS_DIR, `${userId}.db`));
+  initSchema(db);
+  cache.set(userId, db);
+  return db;
+}

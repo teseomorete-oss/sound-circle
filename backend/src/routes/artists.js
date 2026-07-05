@@ -1,6 +1,5 @@
 import { Router } from 'express';
 import { randomUUID } from 'crypto';
-import db from '../db.js';
 import { searchArtists, getArtist, artistTop, artistAlbums } from '../deezer.js';
 
 const router = Router();
@@ -44,7 +43,7 @@ router.get('/deezer/:id/albums', async (req, res) => {
 // --- Following ---
 
 router.get('/', (req, res) => {
-  res.json(db.prepare('SELECT * FROM followed_artists ORDER BY name').all());
+  res.json(req.db.prepare('SELECT * FROM followed_artists ORDER BY name').all());
 });
 
 // Follow (idempotent) — keyed by Deezer artist id
@@ -53,25 +52,25 @@ router.post('/follow', (req, res) => {
   if (!name) return res.status(400).json({ error: 'name required' });
 
   const existing = deezer_id
-    ? db.prepare('SELECT * FROM followed_artists WHERE deezer_id = ?').get(deezer_id)
+    ? req.db.prepare('SELECT * FROM followed_artists WHERE deezer_id = ?').get(deezer_id)
     : null;
   if (existing) return res.json(existing);
 
   const id = randomUUID();
-  db.prepare(
+  req.db.prepare(
     'INSERT INTO followed_artists (id, name, deezer_id, picture) VALUES (?, ?, ?, ?)',
   ).run(id, name, deezer_id ?? null, picture ?? null);
-  res.status(201).json(db.prepare('SELECT * FROM followed_artists WHERE id = ?').get(id));
+  res.status(201).json(req.db.prepare('SELECT * FROM followed_artists WHERE id = ?').get(id));
 });
 
 router.delete('/follow/:deezerId', (req, res) => {
-  db.prepare('DELETE FROM followed_artists WHERE deezer_id = ?').run(req.params.deezerId);
+  req.db.prepare('DELETE FROM followed_artists WHERE deezer_id = ?').run(req.params.deezerId);
   res.json({ ok: true });
 });
 
 // Unfollow by internal id (used by the Following list)
 router.delete('/:id', (req, res) => {
-  db.prepare('DELETE FROM followed_artists WHERE id = ?').run(req.params.id);
+  req.db.prepare('DELETE FROM followed_artists WHERE id = ?').run(req.params.id);
   res.json({ ok: true });
 });
 

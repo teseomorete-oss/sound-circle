@@ -16,12 +16,22 @@ import SongMenu from './components/SongMenu';
 import QueueBar from './components/QueueBar';
 import Settings from './pages/Settings';
 import Stats from './pages/Stats';
+import Login from './pages/Login';
 import { useSocialStore } from './store/social';
 import { useSettings, applySettings } from './store/settings';
+import { useAuth } from './store/auth';
 
 export default function App() {
   const load = useSocialStore((s) => s.load);
-  useEffect(() => { load(); applySettings(useSettings.getState()); }, []);
+  const { status, init } = useAuth();
+
+  useEffect(() => { applySettings(useSettings.getState()); init(); }, []);
+  useEffect(() => { if (status === 'in') load(); }, [status]);
+
+  if (status === 'loading') {
+    return <div className="app-splash"><div className="spinner">Loading…</div></div>;
+  }
+  if (status === 'out') return <Login />;
 
   return (
     <BrowserRouter>

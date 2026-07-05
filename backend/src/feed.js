@@ -1,8 +1,7 @@
 import { randomUUID } from 'crypto';
-import db from './db.js';
 import { getChannelUploads } from './youtube.js';
 
-export function getRecentlyPlayed(limit = 10) {
+export function getRecentlyPlayed(db, limit = 10) {
   return db
     .prepare(`
       SELECT t.*, h.played_at
@@ -14,7 +13,7 @@ export function getRecentlyPlayed(limit = 10) {
     .all(limit);
 }
 
-export function getLibrarySuggestions(limit = 10) {
+export function getLibrarySuggestions(db, limit = 10) {
   // Pull artists from user's library, then fetch more tracks by those artists from history/tracks
   const artists = db
     .prepare(`
@@ -46,7 +45,7 @@ export function getLibrarySuggestions(limit = 10) {
     .all(...artistNames, limit);
 }
 
-export async function refreshNewReleases() {
+export async function refreshNewReleases(db) {
   const artists = db.prepare('SELECT * FROM followed_artists').all();
   const now = Math.floor(Date.now() / 1000);
 
@@ -78,7 +77,7 @@ export async function refreshNewReleases() {
   }
 }
 
-export function getFeedItems(limit = 30) {
+export function getFeedItems(db, limit = 30) {
   return db
     .prepare(`
       SELECT f.id as feed_id, f.type, f.label, f.created_at as feed_at, t.*

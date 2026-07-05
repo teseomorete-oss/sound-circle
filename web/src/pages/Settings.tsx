@@ -1,6 +1,7 @@
 import { useNavigate } from 'react-router-dom';
 import { useState } from 'react';
 import { useSettings, ACCENTS, Accent } from '../store/settings';
+import { useAuth } from '../store/auth';
 import { useSleep } from '../store/sleep';
 import { api } from '../api/client';
 import { Icon } from '../components/icons';
@@ -35,6 +36,7 @@ export default function Settings() {
   const s = useSettings();
   const sleep = useSleep();
   const navigate = useNavigate();
+  const { user, logout } = useAuth();
   const [cleared, setCleared] = useState(false);
 
   return (
@@ -53,6 +55,9 @@ export default function Settings() {
         </Row>
         <Row label="Your stats" desc="Most-played songs and top artists">
           <button className="btn-ghost" onClick={() => navigate('/stats')}>Open</button>
+        </Row>
+        <Row label="Account" desc={user ? `Signed in as ${user.username}` : 'Signed in'}>
+          <button className="btn-ghost" onClick={() => { if (confirm('Sign out of this device?')) logout(); }}>Sign out</button>
         </Row>
       </div>
 

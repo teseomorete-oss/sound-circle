@@ -2,7 +2,6 @@ import { Router } from 'express';
 import { randomUUID } from 'crypto';
 import { createReadStream, statSync, unlinkSync } from 'fs';
 import { join } from 'path';
-import db from '../db.js';
 import { search, getStreamUrl, downloadTrack, resolvePlayable, DOWNLOADS_DIR } from '../youtube.js';
 import { findCover } from '../itunes.js';
 import { cleanTitle } from '../clean.js';
@@ -24,7 +23,7 @@ router.get('/search', async (req, res) => {
 
 // Storage usage of offline downloads
 router.get('/storage', (req, res) => {
-  const rows = db.prepare('SELECT downloaded_path FROM tracks WHERE downloaded_path IS NOT NULL').all();
+  const rows = req.db.prepare('SELECT downloaded_path FROM tracks WHERE downloaded_path IS NOT NULL').all();
   let bytes = 0;
   for (const r of rows) { try { bytes += statSync(r.downloaded_path).size; } catch {} }
   res.json({ count: rows.length, bytes });
@@ -47,7 +46,7 @@ router.get('/radio', async (req, res) => {
 
 // Get all library tracks
 router.get('/', (req, res) => {
-  const tracks = db.prepare('SELECT * FROM tracks ORDER BY created_at DESC').all();
+  const tracks = req.db.prepare('SELECT * FROM tracks ORDER BY created_at DESC').all();
   res.json(tracks);
 });
 
@@ -56,14 +55,14 @@ router.post('/youtube', async (req, res) => {
   const { youtube_id, title, artist, album, duration, thumbnail } = req.body;
   if (!youtube_id || !title) return res.status(400).json({ error: 'youtube_id and title required' });
 
-  const existing = db.prepare('SELECT * FROM tracks WHERE youtube_id = ?').get(youtube_id);
+  const existing = req.db.prepare('SELECT * FROM tracks WHERE youtube_id = ?').get(youtube_id);
   if (existing) return res.json(existing);
 
   // Look up a real square cover + clean metadata; fall back to the YT values.
   const cover = await findCover(artist, cleanTitle(title));
 
   const id = randomUUID();
-  db.prepare(`
+  req.db.prepare(`
     INSERT INTO tracks (id, title, artist, album, duration, thumbnail, source, youtube_id)
     VALUES (?, ?, ?, ?, ?, ?, 'youtube', ?)
   `).run(
@@ -76,7 +75,7 @@ router.post('/youtube', async (req, res) => {
     youtube_id,
   );
 
-  res.status(201).json(db.prepare('SELECT * FROM tracks WHERE id = ?').get(id));
+  res.status(201).json(req.db.prepare('SELECT * FROM tracks WHERE id = ?').get(id));
 });
 
 // Resolve an iTunes/metadata song to a playable track (finds a YouTube source).
@@ -86,7 +85,7 @@ router.post('/resolve', async (req, res) => {
   if (!title) return res.status(400).json({ error: 'title required' });
 
   // Reuse an existing track if we already resolved this song.
-  const existing = db
+  const existing = req.db
     .prepare('SELECT * FROM tracks WHERE title = ? AND IFNULL(artist, \'\') = IFNULL(?, \'\')')
     .get(title, artist ?? null);
   if (existing) return res.json(existing);
@@ -99,17 +98,17 @@ router.post('/resolve', async (req, res) => {
 
     // Two different songs can resolve to the same YouTube video — reuse the
     // existing track instead of violating the unique youtube_id constraint.
-    const byYt = db.prepare('SELECT * FROM tracks WHERE youtube_id = ?').get(youtube_id);
+    const byYt = req.db.prepare('SELECT * FROM tracks WHERE youtube_id = ?').get(youtube_id);
     if (byYt) return res.json(byYt);
 
     const id = randomUUID();
-    db.prepare(`
+    req.db.prepare(`
       INSERT OR IGNORE INTO tracks (id, title, artist, album, duration, thumbnail, source, youtube_id)
       VALUES (?, ?, ?, ?, ?, ?, 'youtube', ?)
     `).run(id, title, artist ?? null, album ?? null, duration ?? null, thumbnail ?? null, youtube_id);
 
-    const row = db.prepare('SELECT * FROM tracks WHERE id = ?').get(id)
-      || db.prepare('SELECT * FROM tracks WHERE youtube_id = ?').get(youtube_id);
+    const row = req.db.prepare('SELECT * FROM tracks WHERE id = ?').get(id)
+      || req.db.prepare('SELECT * FROM tracks WHERE youtube_id = ?').get(youtube_id);
     res.status(201).json(row);
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -127,7 +126,7 @@ router.post('/prewarm-song', async (req, res) => {
 
 // Stream a YouTube track (no download)
 router.get('/:id/stream', async (req, res) => {
-  const track = db.prepare('SELECT * FROM tracks WHERE id = ?').get(req.params.id);
+  const track = req.db.prepare('SELECT * FROM tracks WHERE id = ?').get(req.params.id);
   if (!track) return res.status(404).json({ error: 'Track not found' });
 
   // If already downloaded, serve the file
@@ -166,7 +165,7 @@ router.get('/:id/stream', async (req, res) => {
 
 // Warm the stream-URL cache without streaming (used to prefetch the next track)
 router.post('/:id/prefetch', async (req, res) => {
-  const track = db.prepare('SELECT youtube_id FROM tracks WHERE id = ?').get(req.params.id);
+  const track = req.db.prepare('SELECT youtube_id FROM tracks WHERE id = ?').get(req.params.id);
   if (!track?.youtube_id) return res.json({ ok: false });
   try {
     await getStreamUrl(track.youtube_id);
@@ -178,13 +177,13 @@ router.post('/:id/prefetch', async (req, res) => {
 
 // Download a track for offline use
 router.post('/:id/download', async (req, res) => {
-  const track = db.prepare('SELECT * FROM tracks WHERE id = ?').get(req.params.id);
+  const track = req.db.prepare('SELECT * FROM tracks WHERE id = ?').get(req.params.id);
   if (!track) return res.status(404).json({ error: 'Track not found' });
   if (!track.youtube_id) return res.status(400).json({ error: 'Only YouTube tracks can be downloaded' });
 
   try {
     const path = await downloadTrack(track.youtube_id, track.id);
-    db.prepare('UPDATE tracks SET downloaded_path = ? WHERE id = ?').run(path, track.id);
+    req.db.prepare('UPDATE tracks SET downloaded_path = ? WHERE id = ?').run(path, track.id);
     res.json({ downloaded_path: path });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -193,26 +192,26 @@ router.post('/:id/download', async (req, res) => {
 
 // Remove just the offline download (keep the track in the library)
 router.delete('/:id/download', (req, res) => {
-  const track = db.prepare('SELECT * FROM tracks WHERE id = ?').get(req.params.id);
+  const track = req.db.prepare('SELECT * FROM tracks WHERE id = ?').get(req.params.id);
   if (!track) return res.status(404).json({ error: 'Track not found' });
   if (track.downloaded_path) {
     try { unlinkSync(track.downloaded_path); } catch {}
   }
-  db.prepare('UPDATE tracks SET downloaded_path = NULL WHERE id = ?').run(track.id);
+  req.db.prepare('UPDATE tracks SET downloaded_path = NULL WHERE id = ?').run(track.id);
   res.json({ ok: true });
 });
 
 // Log play to history
 router.post('/:id/played', (req, res) => {
-  const track = db.prepare('SELECT id FROM tracks WHERE id = ?').get(req.params.id);
+  const track = req.db.prepare('SELECT id FROM tracks WHERE id = ?').get(req.params.id);
   if (!track) return res.status(404).json({ error: 'Track not found' });
-  db.prepare('INSERT INTO history (track_id) VALUES (?)').run(req.params.id);
+  req.db.prepare('INSERT INTO history (track_id) VALUES (?)').run(req.params.id);
   res.json({ ok: true });
 });
 
 // Delete a track
 router.delete('/:id', (req, res) => {
-  db.prepare('DELETE FROM tracks WHERE id = ?').run(req.params.id);
+  req.db.prepare('DELETE FROM tracks WHERE id = ?').run(req.params.id);
   res.json({ ok: true });
 });
 
