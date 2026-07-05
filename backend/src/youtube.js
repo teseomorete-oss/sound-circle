@@ -1,7 +1,7 @@
 import YTDlpWrapModule from 'yt-dlp-wrap';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { mkdirSync } from 'fs';
+import { mkdirSync, existsSync } from 'fs';
 
 // yt-dlp-wrap's ESM interop nests the constructor under .default
 const YTDlpWrap = YTDlpWrapModule.default ?? YTDlpWrapModule;
@@ -10,10 +10,20 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 export const DOWNLOADS_DIR = join(__dirname, '..', 'downloads');
 mkdirSync(DOWNLOADS_DIR, { recursive: true });
 
+// On cloud/datacenter IPs YouTube demands "sign in to confirm you're not a bot".
+// Passing cookies from a logged-in (throwaway) account gets past it. Drop a
+// Netscape-format cookies file here and every yt-dlp call uses it automatically.
+const COOKIES = join(__dirname, '..', 'data', 'cookies.txt');
+
 const ytdlp = new YTDlpWrap();
 
+// Wrap execPromise so all calls transparently include cookies (when present).
+function exec(args) {
+  return ytdlp.execPromise(existsSync(COOKIES) ? [...args, '--cookies', COOKIES] : args);
+}
+
 export async function search(query, limit = 20) {
-  const raw = await ytdlp.execPromise([
+  const raw = await exec([
     `ytsearch${limit}:${query}`,
     '--dump-json',
     '--flat-playlist',
@@ -38,7 +48,7 @@ export async function search(query, limit = 20) {
 // Find the best playable YouTube video id for a search query (e.g. an iTunes
 // "artist - title"). Returns the first match's id, or null.
 export async function resolveYoutubeId(query) {
-  const raw = await ytdlp.execPromise([
+  const raw = await exec([
     `ytsearch1:${query}`,
     '--flat-playlist',
     '--print', '%(id)s',
@@ -63,7 +73,7 @@ export async function getStreamUrl(youtubeId) {
   const cached = streamUrlCache.get(youtubeId);
   if (cached && cached.expires > Date.now()) return cached.url;
 
-  const info = await ytdlp.execPromise([
+  const info = await exec([
     `https://www.youtube.com/watch?v=${youtubeId}`,
     // Prefer progressive m4a/AAC — streams far more smoothly in browsers than
     // the default opus/webm, which stutters under range requests.
@@ -89,7 +99,7 @@ export async function resolvePlayable(query) {
     return { youtube_id: knownId, url: await getStreamUrl(knownId) };
   }
 
-  const raw = await ytdlp.execPromise([
+  const raw = await exec([
     `ytsearch1:${query}`,
     '-f', FMT,
     '--get-id',
@@ -108,7 +118,7 @@ export async function resolvePlayable(query) {
 
 export async function downloadTrack(youtubeId, trackId) {
   const outPath = join(DOWNLOADS_DIR, `${trackId}.%(ext)s`);
-  await ytdlp.execPromise([
+  await exec([
     `https://www.youtube.com/watch?v=${youtubeId}`,
     '-f', 'bestaudio',
     '-x',
@@ -121,7 +131,7 @@ export async function downloadTrack(youtubeId, trackId) {
 }
 
 export async function getChannelUploads(channelId, limit = 10) {
-  const raw = await ytdlp.execPromise([
+  const raw = await exec([
     `https://www.youtube.com/channel/${channelId}/videos`,
     '--dump-json',
     '--flat-playlist',
