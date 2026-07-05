@@ -17,9 +17,29 @@ const COOKIES = join(__dirname, '..', 'data', 'cookies.txt');
 
 const ytdlp = new YTDlpWrap();
 
-// Wrap execPromise so all calls transparently include cookies (when present).
+// Each yt-dlp call spawns a memory-hungry process (plus a JS runtime). On a
+// small (1 GB) cloud VM, several at once exhaust RAM and hard-crash the box, so
+// cap how many run concurrently; the rest queue.
+const MAX_CONCURRENT = Number(process.env.YTDLP_CONCURRENCY || 2);
+let active = 0;
+const waiting = [];
+function runLimited(task) {
+  return new Promise((resolve, reject) => {
+    const start = () => {
+      active++;
+      task().then(resolve, reject).finally(() => {
+        active--;
+        const next = waiting.shift();
+        if (next) next();
+      });
+    };
+    if (active < MAX_CONCURRENT) start(); else waiting.push(start);
+  });
+}
+
+// Wrap execPromise: include cookies (when present) and throttle concurrency.
 function exec(args) {
-  return ytdlp.execPromise(existsSync(COOKIES) ? [...args, '--cookies', COOKIES] : args);
+  return runLimited(() => ytdlp.execPromise(existsSync(COOKIES) ? [...args, '--cookies', COOKIES] : args));
 }
 
 export async function search(query, limit = 20) {
