@@ -30,6 +30,7 @@ export interface SettingsData {
   showMenuButton: boolean;  // ⋮ buttons on covers/rows
   showLikeOnRows: boolean;  // inline heart on song rows
   showScrollbars: boolean;  // visible scrollbars on shelves/lists
+  mainScrollbar: boolean;   // show the main page's right-side scrollbar
 }
 
 const DEFAULTS: SettingsData = {
@@ -53,6 +54,7 @@ const DEFAULTS: SettingsData = {
   showMenuButton: true,
   showLikeOnRows: true,
   showScrollbars: false,
+  mainScrollbar: false,
 };
 
 const KEY = 'sc-settings';
@@ -75,6 +77,7 @@ export function applySettings(s: SettingsData) {
   document.body.classList.toggle('no-menu-btn', !s.showMenuButton);
   document.body.classList.toggle('no-row-like', !s.showLikeOnRows);
   document.body.classList.toggle('scrollbars', s.showScrollbars);
+  document.body.classList.toggle('main-scrollbar', s.mainScrollbar);
   if (!s.dynamicTheme) { root.style.removeProperty('--art-color'); root.style.removeProperty('--art-soft'); }
 }
 

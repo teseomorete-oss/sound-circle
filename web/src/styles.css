@@ -120,7 +120,14 @@ img { display: block; }
   overflow-y: auto;
   padding: 0 36px 40px;
   background: radial-gradient(120% 80% at 0% 0%, rgba(168,85,247,0.10), transparent 50%), var(--bg);
+  scrollbar-width: none;                 /* hidden by default */
 }
+.main::-webkit-scrollbar { width: 0; display: none; }
+/* "Main scrollbar" setting brings it back */
+body.main-scrollbar .main { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.2) transparent; }
+body.main-scrollbar .main::-webkit-scrollbar { width: 10px; display: block; }
+body.main-scrollbar .main::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.16); border-radius: 8px; }
+body.main-scrollbar .main::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.28); }
 .main-topbar {
   display: flex; align-items: center; gap: 14px;
   padding: 6px 0 14px;

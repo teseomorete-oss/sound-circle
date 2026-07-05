@@ -96,6 +96,9 @@ export default function Settings() {
         <Row label="Show scrollbars" desc="Visible scrollbars on shelves and lists">
           <Toggle on={s.showScrollbars} onChange={(v) => s.set({ showScrollbars: v })} />
         </Row>
+        <Row label="Main scrollbar" desc="Show the scrollbar on the right of the page">
+          <Toggle on={s.mainScrollbar} onChange={(v) => s.set({ mainScrollbar: v })} />
+        </Row>
       </div>
 
       {/* Playback */}

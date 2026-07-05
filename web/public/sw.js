@@ -1,6 +1,6 @@
 // Service worker — makes the app installable and fast, but always picks up new
 // versions: network-first for the HTML shell, cache-first only for hashed assets.
-const CACHE = 'soundcircle-v21';
+const CACHE = 'soundcircle-v22';
 
 self.addEventListener('install', () => self.skipWaiting());
 
