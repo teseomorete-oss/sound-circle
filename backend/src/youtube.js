@@ -14,6 +14,10 @@ mkdirSync(DOWNLOADS_DIR, { recursive: true });
 // Passing cookies from a logged-in (throwaway) account gets past it. Drop a
 // Netscape-format cookies file here and every yt-dlp call uses it automatically.
 const COOKIES = join(__dirname, '..', 'data', 'cookies.txt');
+// Residential proxy for yt-dlp so YouTube sees a home IP instead of the blocked
+// datacenter IP. Only the small metadata resolution goes through it (the audio
+// streams straight to the client), so proxy bandwidth stays tiny.
+const PROXY = process.env.SC_PROXY || '';
 
 const ytdlp = new YTDlpWrap();
 
@@ -37,9 +41,12 @@ function runLimited(task) {
   });
 }
 
-// Wrap execPromise: include cookies (when present) and throttle concurrency.
+// Wrap execPromise: add cookies + proxy (when configured) and throttle concurrency.
 function exec(args) {
-  return runLimited(() => ytdlp.execPromise(existsSync(COOKIES) ? [...args, '--cookies', COOKIES] : args));
+  const extra = [];
+  if (existsSync(COOKIES)) extra.push('--cookies', COOKIES);
+  if (PROXY) extra.push('--proxy', PROXY);
+  return runLimited(() => ytdlp.execPromise(extra.length ? [...args, ...extra] : args));
 }
 
 export async function search(query, limit = 20) {
