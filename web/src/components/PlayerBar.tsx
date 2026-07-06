@@ -21,6 +21,7 @@ function fmt(sec: number) {
 export default function PlayerBar() {
   const { currentTrack, pending, loading, isPlaying, togglePlay, next, prev, setPlaying, loop, toggleLoop } = usePlayerStore();
   const audioRef = useRef<HTMLAudioElement>(null);
+  const switching = useRef(false); // true while swapping the audio src to a new track
   const [position, setPosition] = useState(0);
   const [duration, setDuration] = useState(0);
   const [volume, setVolume] = useState(useSettings.getState().defaultVolume);
@@ -89,18 +90,22 @@ export default function PlayerBar() {
   // Loop the current track when the loop button is on
   useEffect(() => { if (audioRef.current) audioRef.current.loop = loop; }, [loop, currentTrack?.id]);
 
-  // Load new track
+  // Load new track. Swapping src fires a spurious 'pause' event, so we guard it
+  // (see onPause) and only treat a real autoplay block as a reason to stop.
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio || !currentTrack) return;
+    switching.current = true;
     audio.src = api.streamUrl(currentTrack.id);
-    audio.play().catch(() => setPlaying(false));
+    audio.play()
+      .then(() => { switching.current = false; })
+      .catch((e) => { switching.current = false; if (e?.name === 'NotAllowedError') setPlaying(false); });
   }, [currentTrack?.id]);
 
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
-    if (isPlaying) audio.play().catch(() => {});
+    if (isPlaying) audio.play().catch((e) => { if (e?.name === 'NotAllowedError') setPlaying(false); });
     else audio.pause();
   }, [isPlaying]);
 
@@ -154,7 +159,7 @@ export default function PlayerBar() {
         }}
         onLoadedMetadata={(e) => setDuration(e.currentTarget.duration)}
         onPlay={() => setPlaying(true)}
-        onPause={() => setPlaying(false)}
+        onPause={() => { if (!switching.current) setPlaying(false); }}
         onEnded={() => next()}
       />
 
