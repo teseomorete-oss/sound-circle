@@ -6,8 +6,8 @@ import { usePlayerStore } from '../store/player';
 // Global mobile top bar: logo + name, then queue toggle + settings.
 export default function AppHeader() {
   const navigate = useNavigate();
-  const { queueOpen, toggleQueue, items, index } = usePlayerStore();
-  const hasQueue = items.length - 1 > index;
+  const { queueOpen, toggleQueue, queue } = usePlayerStore();
+  const hasQueue = queue.length > 0;
 
   return (
     <header className="app-header">

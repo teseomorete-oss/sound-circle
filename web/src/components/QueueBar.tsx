@@ -9,12 +9,12 @@ const FULL = 88; // base cover size
 // "manual" keeps it full-size and you open/close it with the header button.
 // Reordering is drag-based (mouse + touch); each cover has a remove ✕.
 export default function QueueBar() {
-  const { items, index, queueOpen, removeAt, moveUpcoming, setQueueOpen } = usePlayerStore();
+  const { queue, queueOpen, removeFromQueue, moveInQueue, setQueueOpen } = usePlayerStore();
   const { queueMode, queueMinSize, showQueueTitle, showQueueArtist } = useSettings();
   const barRef = useRef<HTMLDivElement>(null);
   const dragFrom = useRef<number | null>(null);
 
-  const upcoming = items.map((it, i) => ({ it, abs: i })).filter((x) => x.abs > index);
+  const upcoming = queue.map((it, i) => ({ it, abs: i }));
   const shown = upcoming.slice(0, 12);
 
   useEffect(() => {
@@ -60,7 +60,7 @@ export default function QueueBar() {
     if (!target) return;
     const to = Number(target.dataset.abs);
     if (!Number.isNaN(to) && to !== dragFrom.current) {
-      moveUpcoming(dragFrom.current, to);
+      moveInQueue(dragFrom.current, to);
       dragFrom.current = to;
     }
   };
@@ -83,7 +83,7 @@ export default function QueueBar() {
               onPointerCancel={() => { dragFrom.current = null; }}
             >
               {it.thumbnail ? <img className="queue-cover" src={it.thumbnail} alt="" draggable={false} /> : <div className="queue-cover song-art-placeholder"><Icon name="music" size={18} /></div>}
-              <button className="queue-remove" onPointerDown={(e) => e.stopPropagation()} onClick={() => removeAt(abs)}><Icon name="close" size={12} /></button>
+              <button className="queue-remove" onPointerDown={(e) => e.stopPropagation()} onClick={() => removeFromQueue(abs)}><Icon name="close" size={12} /></button>
               {showTitle && <div className="queue-name">{it.title}</div>}
               {showArtist && <div className="queue-artist">{it.artist}</div>}
             </div>

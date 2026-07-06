@@ -5,22 +5,23 @@ import { useSettings } from './settings';
 export interface PendingInfo { title: string; artist: string | null; thumbnail: string | null; }
 
 interface PlayerState {
-  items: PlayItem[];       // queue — may contain unresolved Deezer songs
-  index: number;
+  queue: PlayItem[];          // the VISIBLE up-next queue: only songs you added
+                              // (Play next / Add to queue) or the list you pressed play on.
+  history: PlayItem[];        // previously played, for prev()
+  currentItem: PlayItem | null;
   currentTrack: Track | null; // the resolved, playable track
-  pending: PendingInfo | null; // metadata shown instantly while a track resolves
+  pending: PendingInfo | null;
   isPlaying: boolean;
   loading: boolean;
   loop: boolean;
-
   queueOpen: boolean;
 
   play: (items: PlayItem[], startIndex?: number) => Promise<void>;
   playOne: (item: PlayItem) => Promise<void>;
   playNext: (item: PlayItem) => void;
   addToQueue: (item: PlayItem) => void;
-  removeAt: (absIndex: number) => void;
-  moveUpcoming: (fromAbs: number, toAbs: number) => void;
+  removeFromQueue: (i: number) => void;
+  moveInQueue: (from: number, to: number) => void;
   setQueueOpen: (v: boolean) => void;
   toggleQueue: () => void;
   next: () => Promise<void>;
@@ -30,15 +31,24 @@ interface PlayerState {
   toggleLoop: () => void;
 }
 
-// Resolve a queue item to a playable Track (Deezer songs hit the resolve API).
 async function resolve(item: PlayItem): Promise<Track> {
   if (isTrack(item)) return item;
   return api.resolveTrack(item);
 }
 
+// Autoplay radio lives OUTSIDE the visible queue — it just keeps the music going
+// once your queue runs out, and never shows up in the "Next up" list.
+let radioBuffer: PlayItem[] = [];
+let radioBusy = false;
+
+function itemKey(it: PlayItem) {
+  return isTrack(it) ? (it.youtube_id ?? it.title) : (it as Song).deezer_id ?? it.title;
+}
+
 export const usePlayerStore = create<PlayerState>((set, get) => ({
-  items: [],
-  index: 0,
+  queue: [],
+  history: [],
+  currentItem: null,
   currentTrack: null,
   pending: null,
   isPlaying: false,
@@ -46,65 +56,68 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   loop: false,
   queueOpen: false,
 
+  async play(items, startIndex = 0) {
+    radioBuffer = [];
+    const cur = items[startIndex];
+    if (!cur) return;
+    set({ history: [], queue: items.slice(startIndex + 1), isPlaying: true, loading: true });
+    await loadCurrent(set, get, cur);
+  },
+
+  async playOne(item) {
+    radioBuffer = []; // new seed → forget old radio
+    const { currentItem, history } = get();
+    set({ history: currentItem ? [...history, currentItem] : history, isPlaying: true, loading: true });
+    await loadCurrent(set, get, item);
+  },
+
+  // Your manual queue — these play BEFORE any autoplay radio (priority).
   playNext(item) {
-    const { items, index, currentTrack } = get();
-    if (!currentTrack) { get().play([item], 0); return; }
-    const ni = [...items.slice(0, index + 1), item, ...items.slice(index + 1)];
-    set({ items: ni, queueOpen: true });
+    if (!get().currentItem) { get().play([item], 0); return; }
+    set({ queue: [item, ...get().queue], queueOpen: true });
   },
-
   addToQueue(item) {
-    const { items, currentTrack } = get();
-    if (!currentTrack) { get().play([item], 0); return; }
-    set({ items: [...items, item], queueOpen: true });
+    if (!get().currentItem) { get().play([item], 0); return; }
+    set({ queue: [...get().queue, item], queueOpen: true });
   },
 
-  removeAt(absIndex) {
-    const { items, index } = get();
-    if (absIndex <= index) return;
-    set({ items: items.filter((_, i) => i !== absIndex) });
+  removeFromQueue(i) {
+    set({ queue: get().queue.filter((_, idx) => idx !== i) });
   },
-
-  moveUpcoming(fromAbs, toAbs) {
-    const { items, index } = get();
-    if (fromAbs <= index || toAbs <= index) return;
-    const arr = [...items];
-    const [m] = arr.splice(fromAbs, 1);
-    arr.splice(toAbs, 0, m);
-    set({ items: arr });
+  moveInQueue(from, to) {
+    const arr = [...get().queue];
+    const [m] = arr.splice(from, 1);
+    arr.splice(to, 0, m);
+    set({ queue: arr });
   },
 
   setQueueOpen(v) { set({ queueOpen: v }); },
   toggleQueue() { set((s) => ({ queueOpen: !s.queueOpen })); },
 
-  async play(items, startIndex = 0) {
-    set({ items, index: startIndex, loading: true, isPlaying: true });
-    await loadIndex(set, get, startIndex);
-  },
-
-  async playOne(item) {
-    const { items, index } = get();
-    // Insert right after current and jump to it (keeps the rest of the queue).
-    const next = [...items.slice(0, index + 1), item, ...items.slice(index + 1)];
-    set({ items: next, loading: true, isPlaying: true });
-    await loadIndex(set, get, index + (items.length ? 1 : 0));
-  },
-
   async next() {
-    const { items, index } = get();
-    if (!items.length) return;
-    // Autoplay: if we're near the end of the queue, append similar songs so
-    // music keeps going instead of stopping/looping back to the start.
-    await topUpRadio(set, get);
-    const after = get().items;
-    const nextIndex = index + 1 < after.length ? index + 1 : (after.length ? (index + 1) % after.length : 0);
-    await loadIndex(set, get, nextIndex);
+    const { queue, currentItem, history } = get();
+    // 1) Your queued songs have priority.
+    if (queue.length) {
+      const [nextItem, ...rest] = queue;
+      set({ history: currentItem ? [...history, currentItem] : history, queue: rest });
+      await loadCurrent(set, get, nextItem);
+      return;
+    }
+    // 2) Otherwise, autoplay radio (hidden) keeps things going.
+    if (!useSettings.getState().autoplay) { set({ isPlaying: false }); return; }
+    if (!radioBuffer.length) await fillRadio(get);
+    const nextItem = radioBuffer.shift();
+    if (!nextItem) { set({ isPlaying: false }); return; }
+    set({ history: currentItem ? [...history, currentItem] : history });
+    await loadCurrent(set, get, nextItem);
   },
 
   async prev() {
-    const { items, index } = get();
-    if (!items.length) return;
-    await loadIndex(set, get, (index - 1 + items.length) % items.length);
+    const { history } = get();
+    if (!history.length) return;
+    const prevItem = history[history.length - 1];
+    set({ history: history.slice(0, -1) });
+    await loadCurrent(set, get, prevItem);
   },
 
   togglePlay() { set((s) => ({ isPlaying: !s.isPlaying })); },
@@ -112,44 +125,9 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   toggleLoop() { set((s) => ({ loop: !s.loop })); },
 }));
 
-// Keep the queue endless: when autoplay is on and there are few upcoming items,
-// fetch similar songs (radio) seeded from the current track and append them.
-let radioBusy = false;
-async function topUpRadio(set: any, get: any) {
-  if (radioBusy) return;
-  if (!useSettings.getState().autoplay) return;
-  const { items, index } = get();
-  const upcoming = items.length - 1 - index;
-  if (upcoming >= 3) return;
-  const seedItem = items[index] ?? items[items.length - 1];
-  if (!seedItem) return;
-  const seed = {
-    artist_id: (seedItem as Song).artist_id ?? null,
-    title: seedItem.title ?? null,
-    artist: seedItem.artist ?? null,
-  };
-  radioBusy = true;
-  try {
-    const songs = await api.radio(seed);
-    const have = new Set(
-      items.map((it: PlayItem) => (isTrack(it) ? it.youtube_id ?? it.title : (it as Song).deezer_id))
-    );
-    const fresh = songs.filter((s) => !have.has(s.deezer_id) && s.title?.toLowerCase() !== seedItem.title?.toLowerCase());
-    if (fresh.length) set({ items: [...get().items, ...fresh.slice(0, 20)] });
-  } catch (e) {
-    // radio is best-effort; ignore failures
-  } finally {
-    radioBusy = false;
-  }
-}
-
-async function loadIndex(set: any, get: any, index: number) {
-  const item = get().items[index];
-  if (!item) return;
-  // Show the track's info immediately (before it resolves) so the player
-  // reacts instantly instead of after the ~2s cold lookup.
+async function loadCurrent(set: any, get: any, item: PlayItem) {
   set({
-    index,
+    currentItem: item,
     loading: true,
     pending: { title: item.title, artist: item.artist ?? null, thumbnail: item.thumbnail ?? null },
   });
@@ -157,18 +135,47 @@ async function loadIndex(set: any, get: any, index: number) {
     const track = await resolve(item);
     set({ currentTrack: track, pending: null, loading: false, isPlaying: true });
     api.logPlayed(track.id).catch(() => {});
-
-    // Keep the queue endless in the background (autoplay).
-    topUpRadio(set, get);
-
-    // Warm the next item (resolve + prefetch its stream URL) for gapless-ish play.
-    const items = get().items;
-    const nextItem = items[(index + 1) % items.length];
-    if (nextItem) {
-      resolve(nextItem).then((t) => api.prefetch(t.id)).catch(() => {});
-    }
+    prefetchNext(get);
+    maybeFillRadio(get);
   } catch (e) {
     console.error('Could not play item', e);
     set({ loading: false, isPlaying: false, pending: null });
   }
+}
+
+// Warm the next track (resolve + prefetch its stream URL) for gapless-ish play.
+function prefetchNext(get: any) {
+  const { queue } = get();
+  const upcoming = queue[0] ?? radioBuffer[0];
+  if (upcoming) resolve(upcoming).then((t) => api.prefetch(t.id)).catch(() => {});
+}
+
+// Stock the (hidden) radio buffer when the queue is empty, so autoplay is instant.
+function maybeFillRadio(get: any) {
+  if (!useSettings.getState().autoplay) return;
+  const { queue } = get();
+  if (queue.length === 0 && radioBuffer.length < 2) fillRadio(get);
+}
+
+async function fillRadio(get: any) {
+  if (radioBusy) return;
+  const seed = get().currentItem;
+  if (!seed) return;
+  radioBusy = true;
+  try {
+    const songs = await api.radio({
+      artist_id: (seed as Song).artist_id ?? null,
+      title: seed.title ?? null,
+      artist: seed.artist ?? null,
+    });
+    const seen = new Set<any>([itemKey(seed), ...get().history.map(itemKey), ...get().queue.map(itemKey)]);
+    for (const s of songs) {
+      const k = itemKey(s);
+      if (seen.has(k)) continue;
+      seen.add(k);
+      radioBuffer.push(s);
+    }
+    radioBuffer = radioBuffer.slice(0, 30);
+  } catch { /* best-effort */ }
+  finally { radioBusy = false; }
 }
