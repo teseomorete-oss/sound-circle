@@ -1,42 +1,18 @@
-// Service worker — makes the app installable and fast, but always picks up new
-// versions: network-first for the HTML shell, cache-first only for hashed assets.
-const CACHE = 'soundcircle-v30';
-
+// Self-destroying service worker. The app now runs on an always-on local server
+// and no longer uses offline caching (it only caused stale builds). This worker
+// clears all caches, unregisters itself, and reloads open pages so any browser
+// still holding an old cached build cleans itself up on next visit.
 self.addEventListener('install', () => self.skipWaiting());
 
 self.addEventListener('activate', (event) => {
   event.waitUntil((async () => {
     const keys = await caches.keys();
-    await Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)));
+    await Promise.all(keys.map((k) => caches.delete(k)));
     await self.clients.claim();
+    await self.registration.unregister();
+    const clients = await self.clients.matchAll({ type: 'window' });
+    clients.forEach((c) => c.navigate(c.url));
   })());
 });
 
-self.addEventListener('fetch', (event) => {
-  const { request } = event;
-  if (request.method !== 'GET') return;
-  const url = new URL(request.url);
-
-  // Never touch the API or cross-origin audio (googlevideo) — always live.
-  if (url.origin !== self.location.origin || url.pathname.startsWith('/api')) return;
-
-  // Network-first for page navigations so a new build shows up immediately.
-  if (request.mode === 'navigate') {
-    event.respondWith(
-      fetch(request)
-        .then((res) => { caches.open(CACHE).then((c) => c.put(request, res.clone())); return res; })
-        .catch(() => caches.match(request).then((r) => r || caches.match('/'))),
-    );
-    return;
-  }
-
-  // Cache-first for hashed static assets (they never change once built).
-  event.respondWith(
-    caches.match(request).then((cached) =>
-      cached || fetch(request).then((res) => {
-        if (res.ok) caches.open(CACHE).then((c) => c.put(request, res.clone()));
-        return res;
-      }),
-    ),
-  );
-});
+// Pass everything straight through to the network — no caching.
