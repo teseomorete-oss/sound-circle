@@ -87,6 +87,28 @@ export default function PlayerBar() {
     return () => { alive = false; };
   }, [disp?.thumbnail]);
 
+  // Unlock audio on the very first user gesture. Real Chrome blocks a play()
+  // that lands after the async song lookup (the gesture has "expired"), so the
+  // song loads but stays silent. Calling play() once inside the first tap marks
+  // the element as user-activated; all later programmatic plays are then allowed.
+  useEffect(() => {
+    const SILENT = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=';
+    const prime = () => {
+      const a = audioRef.current;
+      if (!a) return;
+      document.removeEventListener('pointerdown', prime, true);
+      document.removeEventListener('keydown', prime, true);
+      if (!a.src) { a.src = SILENT; a.play().then(() => a.pause()).catch(() => {}); }
+      else { a.play().catch(() => {}); }
+    };
+    document.addEventListener('pointerdown', prime, true);
+    document.addEventListener('keydown', prime, true);
+    return () => {
+      document.removeEventListener('pointerdown', prime, true);
+      document.removeEventListener('keydown', prime, true);
+    };
+  }, []);
+
   // Loop the current track when the loop button is on
   useEffect(() => { if (audioRef.current) audioRef.current.loop = loop; }, [loop, currentTrack?.id]);
 
