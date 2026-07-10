@@ -59,6 +59,36 @@ async function moreLike() {
   } catch { return null; }
 }
 
+// Junk that shows up in Deezer's global "chart artists" but isn't music
+// (audio dramas, audiobooks, etc.) — e.g. "Die drei ???".
+const NON_MUSIC = /\?\?\?|h[oö]rspiel|h[oö]rbuch|\bfolge\s*\d|verk[aä]lteten|conni|bibi|benjamin bl|drei fragezeichen|five nights|asmr|white noise|sleep sounds/i;
+
+// "Your top artists" — built from what YOU actually listen to (history + likes +
+// follows), not a global chart. Falls back to filtered charts for new users.
+async function topArtistsSmart(limit = 12) {
+  const names = new Map(); // lowercased name -> weight
+  const bump = (name, w) => { if (!name) return; const k = name.toLowerCase(); names.set(k, (names.get(k) ?? 0) + w); };
+
+  // Most-played (history) get the most weight, then liked, then followed.
+  db.prepare(`SELECT t.artist AS name, COUNT(*) AS plays FROM history h JOIN tracks t ON t.id = h.track_id
+              WHERE t.artist IS NOT NULL GROUP BY t.artist`).all().forEach((r) => bump(r.name, r.plays * 3));
+  db.prepare('SELECT artist AS name FROM liked_songs WHERE artist IS NOT NULL').all().forEach((r) => bump(r.name, 2));
+  db.prepare('SELECT name FROM followed_artists').all().forEach((r) => bump(r.name, 2));
+
+  const ranked = [...names.entries()].sort((a, b) => b[1] - a[1]).map((e) => e[0]);
+
+  if (ranked.length >= 3) {
+    // Enrich with Deezer artist info (picture) in parallel.
+    const found = await Promise.all(ranked.slice(0, limit).map((n) => searchArtists(n, 1).then((r) => r[0]).catch(() => null)));
+    const out = found.filter(Boolean);
+    if (out.length) return out;
+  }
+
+  // New user: fall back to popular artists, filtered to real music.
+  const chart = await chartArtists(24).catch(() => []);
+  return chart.filter((a) => !NON_MUSIC.test(a.name ?? '')).slice(0, limit);
+}
+
 // "Because you played <artist>" — radio-style mix seeded from your most-played artist.
 async function becauseYouPlayed() {
   const top = db.prepare(`
@@ -84,10 +114,15 @@ router.get('/', async (req, res) => {
     fromFollowedArtists().catch(() => []),
     chartTracks(15).catch(() => []),
     newReleases(15).catch(() => []),
-    chartArtists(12).catch(() => []),
+    topArtistsSmart(12).catch(() => []),
     moreLike().catch(() => null),
     becauseYouPlayed().catch(() => null),
   ]);
+
+  // Does the user have their own listening data? If so we lead with personalized
+  // shelves; otherwise we lead with what's popular so a fresh app isn't empty.
+  const playCount = db.prepare('SELECT COUNT(*) AS n FROM history').get().n;
+  const personalized = playCount >= 5;
 
   // "Quick picks" (YT Music's Kurzwahl) — a personalized mix rendered as a
   // 3-row square-tile carousel. Blend liked songs + trending, deduped.
@@ -116,20 +151,27 @@ router.get('/', async (req, res) => {
     p.titles = titlesStmt.all(p.id).map((r) => r.title);
   }
 
-  const sections = [
-    { type: 'quick_picks', kind: 'quickpicks', title: 'Quick picks', items: shuffle(quickPicks) },
-    { type: 'recently_played', kind: 'tracks', title: 'Recently played', items: getRecentlyPlayed(12) },
-    { type: 'your_playlists', kind: 'playlists', title: 'Your playlists', items: myPlaylists },
-    { type: 'liked', kind: 'songs', title: 'Songs you like', items: likedSongs },
-    { type: 'trending', kind: 'songs', title: 'Trending now', items: trending },
-    { type: 'new_releases_dz', kind: 'albums', title: 'New releases', items: releases },
-    { type: 'from_followed', kind: 'songs', title: 'From artists you follow', items: followedSongs },
-    becausePlayed ? { type: 'because_played', kind: 'songs', title: becausePlayed.title, items: becausePlayed.items } : null,
-    related ? { type: 'more_like', kind: 'artists', title: related.title, items: related.items } : null,
-    { type: 'top_artists', kind: 'artists', title: 'Top artists', items: topArtists },
-    { type: 'liked_albums', kind: 'albums', title: 'Albums you like', items: likedAlbums },
-    { type: 'suggestions', kind: 'tracks', title: 'Based on your library', items: getLibrarySuggestions(10) },
-  ].filter((s) => s && s.items.length > 0);
+  const S = {
+    quick_picks: { type: 'quick_picks', kind: 'quickpicks', title: 'Quick picks', items: shuffle(quickPicks) },
+    recently_played: { type: 'recently_played', kind: 'tracks', title: 'Recently played', items: getRecentlyPlayed(12) },
+    your_playlists: { type: 'your_playlists', kind: 'playlists', title: 'Your playlists', items: myPlaylists },
+    liked: { type: 'liked', kind: 'songs', title: 'Songs you like', items: likedSongs },
+    trending: { type: 'trending', kind: 'songs', title: 'Trending now', items: trending },
+    new_releases_dz: { type: 'new_releases_dz', kind: 'albums', title: 'New releases', items: releases },
+    from_followed: { type: 'from_followed', kind: 'songs', title: 'From artists you follow', items: followedSongs },
+    because_played: becausePlayed ? { type: 'because_played', kind: 'songs', title: becausePlayed.title, items: becausePlayed.items } : null,
+    more_like: related ? { type: 'more_like', kind: 'artists', title: related.title, items: related.items } : null,
+    top_artists: { type: 'top_artists', kind: 'artists', title: personalized ? 'Your top artists' : 'Popular artists', items: topArtists },
+    liked_albums: { type: 'liked_albums', kind: 'albums', title: 'Albums you like', items: likedAlbums },
+    suggestions: { type: 'suggestions', kind: 'tracks', title: 'Based on your library', items: getLibrarySuggestions(10) },
+  };
+
+  // Smarter ordering: personalized shelves first once you've listened a bit.
+  const order = personalized
+    ? ['quick_picks', 'recently_played', 'because_played', 'your_playlists', 'liked', 'from_followed', 'top_artists', 'more_like', 'suggestions', 'new_releases_dz', 'liked_albums', 'trending']
+    : ['quick_picks', 'trending', 'new_releases_dz', 'top_artists', 'your_playlists', 'liked', 'recently_played', 'from_followed', 'because_played', 'more_like', 'liked_albums', 'suggestions'];
+
+  const sections = order.map((k) => S[k]).filter((s) => s && s.items.length > 0);
 
   res.json(applyPrefs(sections));
 });

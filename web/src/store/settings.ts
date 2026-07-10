@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { DEFAULT_MENU_BIG, DEFAULT_MENU_OPTIONS } from '../lib/menuActions';
 
 export type Accent = 'purple' | 'blue' | 'green' | 'sunset' | 'crimson';
 export const ACCENTS: Record<Accent, [string, string]> = {
@@ -30,6 +31,11 @@ export interface SettingsData {
   showMenuButton: boolean;  // ⋮ buttons on covers/rows
   showLikeOnRows: boolean;  // inline heart on song rows
   showScrollbars: boolean;  // visible scrollbars on shelves/lists
+  mainScrollbar: boolean;   // right-side page scrollbar
+  pullToRefresh: boolean;   // swipe down on Home to refresh the feed
+  compactRows: boolean;     // denser song rows
+  menuBig: string[];        // the 3 big buttons in the hold-menu
+  menuOptions: string[];    // the options list in the hold-menu
 }
 
 const DEFAULTS: SettingsData = {
@@ -53,6 +59,11 @@ const DEFAULTS: SettingsData = {
   showMenuButton: true,
   showLikeOnRows: true,
   showScrollbars: false,
+  mainScrollbar: false,
+  pullToRefresh: true,
+  compactRows: false,
+  menuBig: DEFAULT_MENU_BIG,
+  menuOptions: DEFAULT_MENU_OPTIONS,
 };
 
 const KEY = 'sc-settings';
@@ -75,6 +86,8 @@ export function applySettings(s: SettingsData) {
   document.body.classList.toggle('no-menu-btn', !s.showMenuButton);
   document.body.classList.toggle('no-row-like', !s.showLikeOnRows);
   document.body.classList.toggle('scrollbars', s.showScrollbars);
+  document.body.classList.toggle('main-scrollbar', s.mainScrollbar);
+  document.body.classList.toggle('compact-rows', s.compactRows);
   if (!s.dynamicTheme) { root.style.removeProperty('--art-color'); root.style.removeProperty('--art-soft'); }
 }
 

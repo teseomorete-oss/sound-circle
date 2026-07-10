@@ -7,6 +7,7 @@ import { api } from '../api/client';
 import { Icon } from './icons';
 import AddToPlaylistModal from './AddToPlaylistModal';
 import { openArtist } from '../lib/artist';
+import { useBackClose } from '../lib/useBackClose';
 
 function fmt(sec: number) {
   if (!isFinite(sec)) return '0:00';
@@ -62,6 +63,10 @@ export default function NowPlaying({ position, duration, onSeek, onClose, startL
   const lyricsRef = useRef<HTMLDivElement>(null);
   const touchY = useRef<number | null>(null);
   const navigate = useNavigate();
+
+  // Back gesture closes the full-screen player (and lyrics view) instead of leaving.
+  useBackClose(true, onClose);
+  useBackClose(lyricsOpen, () => setLyricsOpen(false));
 
   // Lyrics come from the prefetch store (fetched when the song started) → instant.
   const entry = useLyricsStore((s) => (currentTrack ? s.cache[currentTrack.id] : undefined));

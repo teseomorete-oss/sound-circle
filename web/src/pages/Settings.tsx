@@ -4,6 +4,7 @@ import { useSettings, ACCENTS, Accent } from '../store/settings';
 import { useSleep } from '../store/sleep';
 import { api } from '../api/client';
 import { Icon } from '../components/icons';
+import { MENU_ACTIONS } from '../lib/menuActions';
 
 function Toggle({ on, onChange }: { on: boolean; onChange: (v: boolean) => void }) {
   return <button className={`toggle ${on ? 'on' : ''}`} onClick={() => onChange(!on)}><span className="knob" /></button>;
@@ -91,6 +92,45 @@ export default function Settings() {
         <Row label="Show scrollbars" desc="Visible scrollbars on shelves and lists">
           <Toggle on={s.showScrollbars} onChange={(v) => s.set({ showScrollbars: v })} />
         </Row>
+        <Row label="Main scrollbar" desc="Show the scrollbar on the right of the page">
+          <Toggle on={s.mainScrollbar} onChange={(v) => s.set({ mainScrollbar: v })} />
+        </Row>
+        <Row label="Compact rows" desc="Denser song lists (fit more on screen)">
+          <Toggle on={s.compactRows} onChange={(v) => s.set({ compactRows: v })} />
+        </Row>
+        <Row label="Pull to refresh" desc="Swipe down at the top of Home to load a fresh feed">
+          <Toggle on={s.pullToRefresh} onChange={(v) => s.set({ pullToRefresh: v })} />
+        </Row>
+      </div>
+
+      {/* Song menu (hold a cover) */}
+      <div className="settings-section">
+        <h2 className="settings-h">Song menu</h2>
+        <div className="set-desc" style={{ marginBottom: 6 }}>What appears when you long-press a song or cover.</div>
+        <div className="set-sub">Big buttons · pick up to 3</div>
+        <div className="chip-wrap">
+          {MENU_ACTIONS.filter((a) => a.big).map((a) => {
+            const on = s.menuBig.includes(a.key);
+            return (
+              <button key={a.key} className={`pick-chip ${on ? 'on' : ''}`}
+                onClick={() => s.set({ menuBig: on ? s.menuBig.filter((k) => k !== a.key) : [...s.menuBig, a.key].slice(-3) })}>
+                {a.label}
+              </button>
+            );
+          })}
+        </div>
+        <div className="set-sub" style={{ marginTop: 14 }}>Options list</div>
+        <div className="chip-wrap">
+          {MENU_ACTIONS.map((a) => {
+            const on = s.menuOptions.includes(a.key);
+            return (
+              <button key={a.key} className={`pick-chip ${on ? 'on' : ''}`}
+                onClick={() => s.set({ menuOptions: on ? s.menuOptions.filter((k) => k !== a.key) : [...s.menuOptions, a.key] })}>
+                {a.label}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {/* Playback */}

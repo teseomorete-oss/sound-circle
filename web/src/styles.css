@@ -190,6 +190,7 @@ img { display: block; }
   display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 18px;
 }
 .card-row { display: flex; gap: 18px; overflow-x: auto; padding-bottom: 8px; scroll-snap-type: x mandatory; }
+.card-row-albums .media-card { min-width: 150px; }
 .card-row .media-card { min-width: 170px; scroll-snap-align: start; }
 /* smaller cards (home "Your playlists") */
 /* Home "Your playlists" cards: fixed square cover + first-5 titles list */
@@ -662,6 +663,29 @@ body.reduce-motion *, body.reduce-motion *::before, body.reduce-motion *::after 
 .set-text { flex: 1; min-width: 0; }
 .set-label { font-size: 15px; font-weight: 600; }
 .set-desc { font-size: 13px; color: var(--text-dim); margin-top: 3px; }
+
+/* Pull-to-refresh indicator */
+.ptr { display: flex; align-items: center; justify-content: center; overflow: hidden; color: var(--accent); transition: height 0.15s; }
+.ptr-icon { display: flex; }
+.ptr-icon.spin { animation: ptr-spin 0.8s linear infinite; }
+@keyframes ptr-spin { to { transform: rotate(360deg); } }
+
+/* Settings: menu customiser chips */
+.set-sub { font-size: 11px; font-weight: 700; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.6px; margin: 4px 0 8px; }
+.chip-wrap { display: flex; flex-wrap: wrap; gap: 8px; }
+.pick-chip { padding: 8px 14px; border-radius: 18px; background: var(--surface-hover); color: var(--text-dim); font-size: 13px; font-weight: 600; border: 1px solid transparent; transition: background 0.15s, color 0.15s; }
+.pick-chip.on { background: var(--accent-grad); color: #fff; }
+
+/* Main page scrollbar: hidden by default, shown via the setting */
+.main { scrollbar-width: none; }
+.main::-webkit-scrollbar { width: 0; display: none; }
+body.main-scrollbar .main { scrollbar-width: thin; }
+body.main-scrollbar .main::-webkit-scrollbar { width: 10px; display: block; }
+body.main-scrollbar .main::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.16); border-radius: 8px; }
+
+/* Compact rows */
+body.compact-rows .song-row, body.compact-rows .track-row { padding-top: 5px; padding-bottom: 5px; }
+body.compact-rows .song-row .thumb, body.compact-rows .track-row .thumb { width: 42px; height: 42px; }
 .set-control { flex-shrink: 0; }
 .set-slider { width: 160px; accent-color: var(--accent); }
 /* Stats page */

@@ -77,7 +77,7 @@ export default function Artist() {
       {albums.length > 0 && (
         <div className="section">
           <h2 className="section-title">Albums</h2>
-          <div className="card-grid">
+          <div className="card-row card-row-albums">
             {albums.map((a) => <AlbumCard key={a.deezer_id} album={a} />)}
           </div>
         </div>

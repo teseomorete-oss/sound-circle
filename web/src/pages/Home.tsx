@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, FeedSection, Track, Song, Album, ArtistResult, Playlist } from '../api/client';
 import { ArtistCard, AlbumCard, TrackCard } from '../components/Cards';
@@ -24,7 +24,10 @@ export default function Home() {
   const [refreshing, setRefreshing] = useState(false);
   const navigate = useNavigate();
   const { playOne, play } = usePlayerStore();
-  const { showQuickPicks, showTrending, showNewReleases, displayName } = useSettings();
+  const { showQuickPicks, showTrending, showNewReleases, displayName, pullToRefresh } = useSettings();
+  const [pull, setPull] = useState(0);
+  const pullRef = useRef(0);
+  const setP = (v: number) => { pullRef.current = v; setPull(v); };
 
   // Pick a random song from the feed and play it
   const randomPlay = () => {
@@ -50,8 +53,39 @@ export default function Home() {
 
   useEffect(() => { load(); }, []);
 
+  // Pull-to-refresh: drag down at the top of the page to reload a fresh feed.
+  useEffect(() => {
+    if (!pullToRefresh) return;
+    const main = document.querySelector('.main') as HTMLElement | null;
+    if (!main) return;
+    let startY = 0, pulling = false;
+    const onStart = (e: TouchEvent) => { if (main.scrollTop <= 0) { startY = e.touches[0].clientY; pulling = true; } };
+    const onMove = (e: TouchEvent) => {
+      if (!pulling) return;
+      const dy = e.touches[0].clientY - startY;
+      if (dy > 0 && main.scrollTop <= 0) setP(Math.min(dy * 0.5, 90));
+      else { pulling = false; setP(0); }
+    };
+    const onEnd = () => { if (pullRef.current > 55) load(true); setP(0); pulling = false; };
+    main.addEventListener('touchstart', onStart, { passive: true });
+    main.addEventListener('touchmove', onMove, { passive: true });
+    main.addEventListener('touchend', onEnd);
+    return () => {
+      main.removeEventListener('touchstart', onStart);
+      main.removeEventListener('touchmove', onMove);
+      main.removeEventListener('touchend', onEnd);
+    };
+  }, [pullToRefresh]);
+
   return (
     <div>
+      {(pull > 0 || refreshing) && (
+        <div className="ptr" style={{ height: refreshing ? 44 : pull }}>
+          <span className={`ptr-icon ${refreshing ? 'spin' : ''}`} style={{ transform: `rotate(${pull * 3}deg)` }}>
+            <Icon name="refresh" size={22} />
+          </span>
+        </div>
+      )}
       <div className="main-topbar desktop-only">
         <h1 className="page-title">{greeting()}{displayName ? `, ${displayName}` : ''}</h1>
         <div style={{ flex: 1 }} />
